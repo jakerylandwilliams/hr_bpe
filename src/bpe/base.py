@@ -58,7 +58,7 @@ class Tokenizer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def fit(self, num_batches, batch_size=1, actions_per_batch=1, seed=None):
+    def fit(self, num_batches, batch_size=1, seed=None):
         raise NotImplementedError
 
     def encode(self, text):
@@ -157,12 +157,21 @@ class BPE(Tokenizer):
         else:
             raise ValueError(f'Unrecognized document pre-processing method: {method}')
 
-    def fit(self, num_batches, batch_size=1, actions_per_batch=1, seed=None):
+    def fit(self, num_batches, batch_size=1, seed=None):
         if seed:
             np.random.seed(seed=seed)
 
         for batch in range(num_batches):
-            pass
+            actions = self.rank_actions(self.get_actions())
+
+            for action in actions:
+                if action.type == 'merge':
+                    self.merge(action.pair)
+                else:
+                    self.split(action.pair)
+
+                if self.do_break_early():
+                    break
 
     def merge(self, pair):
         newtok = "".join(pair)
@@ -338,3 +347,6 @@ class BPE(Tokenizer):
     @abstractmethod
     def rank_actions(self, actions):
         raise NotImplementedError
+
+    def do_break_early(self):
+        return False
