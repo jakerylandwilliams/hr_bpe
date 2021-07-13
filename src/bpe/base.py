@@ -2,6 +2,14 @@ import json
 
 from abc import ABC
 from abc import abstractmethod
+from collections import Counter
+from collections import defaultdict
+
+import numpy as np
+
+from tqdm import tqdm
+
+from ..utils import tokenize
 
 
 class Tokenizer(ABC):
@@ -46,7 +54,7 @@ class Tokenizer(ABC):
         json.dump(self._tok2ind, open(path, 'w+'))
 
     @abstractmethod
-    def init(self, docs):
+    def init(self, docs, seed=None):
         raise NotImplementedError
 
     @abstractmethod
@@ -80,3 +88,75 @@ class Tokenizer(ABC):
 
     def indices_to_tokens(self, indices):
         return [self._ind2tok[i] for i in indices]
+
+
+class BPE(Tokenizer):
+
+    def __init__(self, tok2ind=None, load_path=None):
+        super().__init__(tok2ind=tok2ind, load_path=load_path)
+
+        # starting and ending points for each token (as a set for constant lookup)
+        self._lefts = {}
+        self._rights = {}
+
+        # frequency-based information
+        self._unigraph = Counter()
+        self._doc_unigraph = defaultdict(Counter)
+        self._digraph = Counter()
+
+        # mapping to and from indices
+        self._tok_idx = defaultdict(set)
+        self._pair_idx = defaultdict(set)
+        self._char2docidx = {}
+
+    @abstractmethod
+    def init(self, docs, seed=None, method='char'):
+        if seed:
+            np.random.seed(seed=seed)
+
+        offset = 0
+        for doc_idx, doc in tqdm(enumerate(docs), desc=f'Initializing'):
+
+            stream = self._init_doc(doc, method=method)
+            assert (sum(map(len, stream)) == len(doc))
+
+            for ix, tok in enumerate(stream):
+                self._unigraph[tok] += 1
+                self._tok_idx[tok].add(offset)
+
+                for char_idx in range(offset, offset + len(tok)):
+                    self._char2docidx[char_idx] = doc_idx
+
+                self._doc_unigraph[doc_idx][tok] += 1
+
+                tok_pair = (stream[ix - 1], tok) if ix else ('', tok)
+                self._lefts[(offset - len(stream[ix - 1])) if ix else (offset - 1)] = tok_pair
+                self._rights[offset] = tok_pair
+
+                if ix:
+                    self._digraph[tok_pair] += 1
+                    self._pair_idx[tok_pair].add(offset - len(stream[ix - 1]))
+
+                offset += len(tok)
+
+            tok_pair = (tok, '')
+            self._lefts[offset - len(tok)] = tok_pair
+            self._rights[offset] = tok_pair
+
+            offset += 1
+
+    @staticmethod
+    def _init_doc(d, method='char'):
+        if method == 'char':
+            return d
+        elif method == 'warm':
+            return tokenize(d)
+        elif method == 'rand':
+            topidx = sorted(set([0] + sorted(np.random.choice(np.arange(1, len(d)), size=int(len(d) / 2), replace=False)) + [len(d)]))
+            return [d[topidx[idx - 1]:topidx[idx]] for idx in range(1, len(topidx))]
+        else:
+            raise ValueError(f'Unrecognized document pre-processing method: {method}')
+
+    @abstractmethod
+    def fit(self):
+        raise NotImplementedError
