@@ -58,7 +58,7 @@ class Tokenizer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def fit(self):
+    def fit(self, num_batches, batch_size=1, actions_per_batch=1, seed=None):
         raise NotImplementedError
 
     def encode(self, text):
@@ -109,7 +109,6 @@ class BPE(Tokenizer):
         self._pair_idx = defaultdict(set)
         self._char2docidx = {}
 
-    @abstractmethod
     def init(self, docs, seed=None, method='char'):
         if seed:
             np.random.seed(seed=seed)
@@ -152,11 +151,190 @@ class BPE(Tokenizer):
         elif method == 'warm':
             return tokenize(d)
         elif method == 'rand':
-            topidx = sorted(set([0] + sorted(np.random.choice(np.arange(1, len(d)), size=int(len(d) / 2), replace=False)) + [len(d)]))
+            topidx = sorted(set(
+                [0] + sorted(np.random.choice(np.arange(1, len(d)), size=int(len(d) / 2), replace=False)) + [len(d)]))
             return [d[topidx[idx - 1]:topidx[idx]] for idx in range(1, len(topidx))]
         else:
             raise ValueError(f'Unrecognized document pre-processing method: {method}')
 
+    def fit(self, num_batches, batch_size=1, actions_per_batch=1, seed=None):
+        if seed:
+            np.random.seed(seed=seed)
+
+        for batch in range(num_batches):
+            pass
+
+    def merge(self, pair):
+        newtok = "".join(pair)
+
+        skip_next = False
+        locations = list(self._pair_idx[pair])
+        for i in sorted(locations):
+            if skip_next:  # handle odd numbers of repeated tokens
+                skip_next = False
+                continue
+
+            # gather the instance's neighbors
+            lneighbor = self._rights[i][0]
+            rneighbor = self._lefts[i + len(pair[0])][1]
+            skip_next = True if pair[0] == pair[1] and pair[1] == rneighbor else False
+
+            # delete the entries for this pair in both indices
+            del (self._lefts[i])
+            del (self._rights[i + len(pair[0])])
+
+            # gather the old left and right adjacent pairs
+            lpair = (lneighbor, pair[0])
+            rpair = (pair[1], rneighbor)
+
+            # construct new left and right adjacent pairs
+            newlpair = (lneighbor, newtok)
+            newrpair = (newtok, rneighbor)
+
+            # delete the old left and right pair from both left/right indexings
+            del (self._lefts[i - len(lneighbor) if lneighbor else i - 1])  # lpair
+            del (self._rights[i])  # lpair
+            del (self._lefts[i + len(pair[0])])  # rpair
+            del (self._rights[i + len(newtok)])  # rpair
+
+            # update both left and right indexings with the new left and right pairs
+            self._lefts[i - len(lneighbor) if lneighbor else i - 1] = newlpair
+            self._rights[i] = newlpair
+            self._lefts[i] = newrpair
+            self._rights[i + len(newtok)] = newrpair
+
+            # only update left co-occurrences if lneighbor is non-empty
+            if lneighbor:  # including deleting the lpair instance from codata
+                self._digraph[newlpair] += 1
+                self._digraph[lpair] -= 1
+                self._pair_idx[newlpair].add(i - len(lneighbor))
+                self._pair_idx[lpair].remove(i - len(lneighbor))
+                if not self._digraph[lpair]:
+                    del (self._digraph[lpair])
+                if not self._pair_idx[lpair]:
+                    del (self._pair_idx[lpair])
+
+            # only update right co-occurrences if rneighbor is non-empty
+            if rneighbor:  # including deleting rpair the instance from codata
+                self._digraph[newrpair] += 1
+                self._digraph[rpair] -= 1
+                self._pair_idx[newrpair].add(i)
+                self._pair_idx[rpair].remove(i + len(pair[0]))
+                if not self._digraph[rpair]:
+                    del (self._digraph[rpair])
+                if not self._pair_idx[rpair]:
+                    del (self._pair_idx[rpair])
+
+            # update unigram frequencies
+            self._unigraph[newtok] += 1
+            self._unigraph[pair[0]] -= 1
+            self._unigraph[pair[1]] -= 1
+            if not self._unigraph[pair[0]]:
+                del (self._unigraph[pair[0]])
+            if not self._unigraph[pair[1]]:
+                del (self._unigraph[pair[1]])
+
+            texti = self._char2docidx[i]
+            self._doc_unigraph[texti][newtok] += 1
+            self._doc_unigraph[texti][pair[0]] -= 1
+            if not self._doc_unigraph[texti][pair[0]]:
+                del (self._doc_unigraph[texti][pair[0]])
+            self._doc_unigraph[texti][pair[1]] -= 1
+            if not self._doc_unigraph[texti][pair[1]]:
+                del (self._doc_unigraph[texti][pair[1]])
+
+            # update the token locations
+            self._tok_idx[newtok].add(i)
+            self._tok_idx[pair[0]].remove(i)
+            self._tok_idx[pair[1]].remove(i + len(pair[0]))
+            if not self._tok_idx[pair[0]]:
+                del (self._tok_idx[pair[0]])
+            if not self._tok_idx[pair[1]]:
+                del (self._tok_idx[pair[1]])
+
+            # delete the pair from the co-occurrence data record
+            self._digraph[pair] -= 1
+            self._pair_idx[pair].remove(i)
+            if not self._pair_idx[pair]:
+                del (self._pair_idx[pair])
+            if not self._digraph[pair]:
+                del (self._digraph[pair])
+
+    def split(self, wpair):
+        oldtok = "".join(wpair)
+        locations = list(self._tok_idx[oldtok])
+        for i in sorted(locations):
+            # update the left/right and consequential digraph indices
+            # wpair[0] updates
+            lneighbor = self._rights[i][0]
+            rneighbor = self._lefts[i][1]
+            lpair = (lneighbor, oldtok)
+            rpair = (oldtok, rneighbor)
+            newlpair = (lneighbor, wpair[0])
+            newcpair = wpair
+            newrpair = (wpair[1], rneighbor)
+
+            # cpair
+            self._digraph[newcpair] += 1
+            self._pair_idx[newcpair].add(i)
+            self._lefts[i] = wpair
+            self._rights[i + len(wpair[0])] = wpair
+
+            # lpairs
+            del (self._rights[i])
+            self._rights[i] = newlpair
+            del (self._lefts[i - len(lneighbor) if lneighbor else i - 1])
+            self._lefts[i - len(lneighbor) if lneighbor else i - 1] = newlpair
+            if lneighbor:
+                self._digraph[newlpair] += 1
+                self._digraph[lpair] -= 1
+                self._pair_idx[newlpair].add(i - len(lneighbor))
+                self._pair_idx[lpair].remove(i - len(lneighbor))
+                if not self._digraph[lpair]:
+                    del self._digraph[lpair]
+                if not self._pair_idx[lpair]:
+                    del (self._pair_idx[lpair])
+
+            # rpairs
+            # del(left_indexed_pairs[i]) # technically, this was just overwritten w/wpair and doesn't need deletion
+            self._lefts[i + len(wpair[0])] = newrpair
+            # del(right_indexed_pairs[i+len(oldtok)])
+            self._rights[i + len(oldtok)] = newrpair
+            if rneighbor:
+                self._digraph[newrpair] += 1
+                self._digraph[rpair] -= 1
+                self._pair_idx[newrpair].add(i + len(wpair[0]))
+                self._pair_idx[rpair].remove(i)
+                if not self._digraph[rpair]:
+                    del (self._digraph[rpair])
+                if not self._pair_idx[rpair]:
+                    del (self._pair_idx[rpair])
+
+            # update unigram frequencies
+            self._unigraph[oldtok] -= 1
+            self._unigraph[wpair[0]] += 1
+            self._unigraph[wpair[1]] += 1
+            if not self._unigraph[oldtok]:
+                del self._unigraph[oldtok]
+
+            # update the token locations
+            self._tok_idx[oldtok].remove(i)
+            self._tok_idx[wpair[0]].add(i)
+            self._tok_idx[wpair[1]].add(i + len(wpair[0]))
+            if not self._tok_idx[oldtok]:
+                del (self._tok_idx[oldtok])
+
+            texti = self._char2docidx[i]
+            self._doc_unigraph[texti][oldtok] -= 1
+            if not self._doc_unigraph[texti][oldtok]:
+                del (self._doc_unigraph[texti][oldtok])
+            self._doc_unigraph[texti][wpair[0]] += 1
+            self._doc_unigraph[texti][wpair[1]] += 1
+
     @abstractmethod
-    def fit(self):
+    def get_actions(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def rank_actions(self, actions):
         raise NotImplementedError
