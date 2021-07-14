@@ -117,7 +117,7 @@ def get_model(method='est_type', model_type='mixing', rs=None, fs=None, doc_fs=N
         fmodel = lambda r: ((r - px['theta'])**(-px['theta']))
     elif model_type == 'mixing':
         fmodel = lambda r: ((r - px['theta'])**(-px['theta']))*(1 - (1 + px['ravg']/r)**(-px['Navg']/px['ravg']))
-    elif model_type == '?':
+    elif model_type == 'resonator':
         fmodel = lambda r: ((r - px['theta'])**(-px['theta']))*(1 - (1 - ((1/r)/(px['HN']*((px['N'] - px['Navg'])/px['N']) + (1/r)))) * ((1 + px['ravg']/(r - px['theta']))**(-px['Navg']/px['ravg'])))
     else:
         raise ValueError('Unknown model type:', model_type)

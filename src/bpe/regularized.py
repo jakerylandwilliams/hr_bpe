@@ -26,7 +26,7 @@ class ScoredAction(Action):
 
 class HRBPE(BPE):
 
-    def __init__(self, tok2ind=None, reg_model='mixing', param_method='est_type'):
+    def __init__(self, tok2ind=None, reg_model='mixing', param_method='est_type', early_stop=False):
         super().__init__(tok2ind=tok2ind)
 
         self._NLLs = []
@@ -41,6 +41,22 @@ class HRBPE(BPE):
 
         self._param_method = param_method
         self._reg_model = reg_model
+        self._early_stop = early_stop
+
+    def save(self, path, data=None):
+        if data is None:
+            data = {}
+
+        data['action_trace'] = [[a.pair, 1 if a.type == 'merge' else 0, a.count, a.score] for a in self._action_trace]
+
+        super(HRBPE, self).save(path, data=data)
+
+    def load(self, path):
+        data = super(HRBPE, self).load(path)
+
+        self._action_trace = [ScoredAction(a[0], count=a[2], score=a[3], type='merge' if a[1] else 'split') for a in data['action_trace']]
+
+        return data
         
     def init(self, docs, seed=None, method='char'):
         super(HRBPE, self).init(docs, seed=seed, method=method)
@@ -148,7 +164,7 @@ class HRBPE(BPE):
         return ranked
 
     def do_break_early(self):
-        return len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2]
+        return self._early_stop and len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2]
 
     def display_epochs(self):
         ws, fs = map(np.array, zip(*self._unigraph.most_common()))
