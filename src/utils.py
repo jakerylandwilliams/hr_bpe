@@ -1,5 +1,7 @@
 import re
 
+import numpy as np
+
 
 def tokenize(text, space=True):
     tokens = []
@@ -35,3 +37,17 @@ def sentokenize(text, space=True):
         else:
             sentences.append(tokenize(sentence, space=space))
     return sentences
+
+
+def softmax(z):
+    expz = np.exp(z - np.max(z))
+    return expz / sum(expz)
+
+
+def rankguess(sizeranks, f):
+    if f in sizeranks:
+        return sizeranks[f]
+    else:
+        sizes = np.array(list(sizeranks.keys()))
+        errs = np.abs(f - sizes)
+        return sizeranks[sizes[errs == min(errs)][0]]

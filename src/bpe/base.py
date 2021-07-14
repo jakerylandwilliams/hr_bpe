@@ -5,23 +5,31 @@ from abc import abstractmethod
 from collections import Counter
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from tqdm import tqdm
 
+from ..harmonic import get_model
+
 from ..utils import tokenize
+
+
+class Action:
+
+    def __init__(self, pair, type='merge', count=-1):
+        self.pair = pair
+        self.type = type
+        self.count = count
 
 
 class Tokenizer(ABC):
 
-    def __init__(self, tok2ind=None, load_path=None):
+    def __init__(self, tok2ind=None):
         if tok2ind is None:
             self._tok2ind = {}
         else:
             self._tok2ind = tok2ind
-
-        if load_path:
-            self._tok2ind = json.load(open(load_path))
 
         self._ind2tok = {v: k for k, v in self._tok2ind.items()}
 
@@ -50,8 +58,20 @@ class Tokenizer(ABC):
 
                 del self._ind2tok[i]
 
-    def save(self, path):
-        json.dump(self._tok2ind, open(path, 'w+'))
+    def save(self, path, data=None):
+        if data is None:
+            data = {}
+
+        data['tok2ind'] = self._tok2ind
+        json.dump(data, open(path, 'w+'))
+
+    def load(self, path):
+        data = json.load(open(path))
+
+        self._tok2ind = data['tok2ind']
+        self._ind2tok = {v: k for k, v in self._tok2ind.items()}
+
+        return data
 
     @abstractmethod
     def init(self, docs, seed=None):
@@ -92,8 +112,8 @@ class Tokenizer(ABC):
 
 class BPE(Tokenizer):
 
-    def __init__(self, tok2ind=None, load_path=None):
-        super().__init__(tok2ind=tok2ind, load_path=load_path)
+    def __init__(self, tok2ind=None):
+        super().__init__(tok2ind=tok2ind)
 
         # starting and ending points for each token (as a set for constant lookup)
         self._lefts = {}
@@ -109,12 +129,33 @@ class BPE(Tokenizer):
         self._pair_idx = defaultdict(set)
         self._char2docidx = {}
 
+    def save(self, path, data=None):
+        if data is None:
+            data = {}
+
+        data['unigraph'] = dict(self._unigraph)
+        data['digraph'] = [[k[0], k[1], v] for k, v in self._digraph.items()]
+        data['doc_unigraph'] = {k: dict(v) for k, v in self._doc_unigraph.items()}
+        
+        super(BPE, self).save(path, data=data)
+
+    def load(self, path):
+        data = super(BPE, self).load(path)
+
+        self._unigraph = Counter(data['unigraph'])
+        self._digraph = Counter({(l, r): v for l, r, v in data['digraph']})
+        self._doc_unigraph = defaultdict(Counter)
+        for k, v in data['doc_unigraph'].items():
+            self._doc_unigraph[k] = Counter(v)
+
+        return data
+
     def init(self, docs, seed=None, method='char'):
         if seed:
             np.random.seed(seed=seed)
 
         offset = 0
-        for doc_idx, doc in tqdm(enumerate(docs), desc=f'Initializing'):
+        for doc_idx, doc in enumerate(tqdm(docs, desc=f'Initializing')):
 
             stream = self._init_doc(doc, method=method)
             assert (sum(map(len, stream)) == len(doc))
@@ -161,8 +202,8 @@ class BPE(Tokenizer):
         if seed:
             np.random.seed(seed=seed)
 
-        for batch in range(num_batches):
-            actions = self.rank_actions(self.get_actions())
+        for batch in tqdm(range(num_batches), desc='Fitting'):
+            actions = self.rank_actions(self.get_actions(batch_size))[:batch_size]
 
             for action in actions:
                 if action.type == 'merge':
@@ -170,8 +211,13 @@ class BPE(Tokenizer):
                 else:
                     self.split(action.pair)
 
-                if self.do_break_early():
-                    break
+            if self.do_break_early():
+                break
+
+        for k in self._unigraph.keys():
+            self.add_type(k)
+
+        print(f'Built a vocabulary of {len(self)} types')
 
     def merge(self, pair):
         newtok = "".join(pair)
@@ -341,7 +387,7 @@ class BPE(Tokenizer):
             self._doc_unigraph[texti][wpair[1]] += 1
 
     @abstractmethod
-    def get_actions(self):
+    def get_actions(self, batch_size):
         raise NotImplementedError
 
     @abstractmethod
@@ -350,3 +396,23 @@ class BPE(Tokenizer):
 
     def do_break_early(self):
         return False
+
+    def display(self, model_type='mixing', method='est_type'):
+        ws, fs = map(np.array, zip(*self._unigraph.most_common()))
+        rs = np.arange(1, len(ws) + 1)
+
+        fmodel, fhat, fnorm, phat, px = get_model(
+            method=method, model_type=model_type,
+            fs=fs, rs=rs, doc_fs=self._doc_unigraph,
+        )
+
+        plt.plot(np.log10(rs), np.log10(fs / fs.sum()), color='black', lw=3, label='BPE frequency')
+        plt.plot(np.log10(rs), np.log10(fmodel(rs) / fmodel(rs).sum()), label='Regularization',
+                 color='red', linestyle='dashed', lw=3)
+        plt.xlabel(r'$\log_{10} r$ rank', fontsize=25)
+        plt.ylabel(r'$\log_{10} f$ frequency', fontsize=25)
+        plt.xticks(fontsize=25)
+        plt.yticks(fontsize=25)
+        _ = plt.legend(fontsize=25)
+
+        plt.show()
