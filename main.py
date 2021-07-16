@@ -10,32 +10,54 @@ if __name__ == '__main__':
 
     seed = 1234
 
+    language = 'EN'
+#     language = 'PL'
+#     language = 'IT'
+#     language = 'HI'
+#     language = 'HE'
+#     language = 'GA'
+#     language = 'FR'
+#     language = 'EU'
+#     language = 'EL'
+#     language = 'DE'
+#     language = 'ZH'
+#     language = 'TR'
+#     language = 'SV'
+#     language = 'RO'
+#     language = 'PT'
+
     init_method = 'char'
     # init_method = 'warm'
     # init_method = 'rand'
 
-    num_batches = 1_000
+    num_batches = 1_00
     # num_batches = 10_000
 
     # batch_size = 1
     # batch_size = 10
     # batch_size = 100
-    batch_size = 2500
+    batch_size = 250
 
     # method = 'greedy'
     method = 'hr-bpe'
 
     # reg_model = 'simon'
     reg_model = 'mixing'
-    # reg_model = '?'
+    # reg_model = 'resonator'
 
-    # param_method = 'est_type'
-    param_method = 'est_doc'
+    param_method = 'est_type'
+    # param_method = 'est_doc'
     # param_method = 'est_theta'
     # param_method = 'regress'
     # param_method = 'regress_theta'
-
-    docs = [x['text'] for x in json.load(open('./data/newstweet-sample-linked.json')) if x['tweets']]
+    
+    docs = []
+    datasets = []
+    for filepath in [fpath for fpath in os.listdir('./data/gold/'+language+'/') if '.json' in fpath]:
+        datasets.append(json.load(open('./data/gold/'+language+'/'+filepath)))
+        docs += ["".join(x) for x in datasets[-1].values()]
+    
+    # docs = [x['text'] for x in json.load(open('./data/newstweet-sample-linked.json')) if x['tweets']]
 
     if method == 'greedy':
         model_str = f'{method}_{init_method}_{num_batches}_{batch_size}'
