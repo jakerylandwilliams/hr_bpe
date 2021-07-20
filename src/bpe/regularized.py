@@ -49,12 +49,34 @@ class HRBPE(BPE):
 
         data['action_trace'] = [[a.pair, 1 if a.type == 'merge' else 0, a.count, a.score] for a in self._action_trace]
 
+        data['reg_model'] = self._reg_model
+        data['param_method'] = self._param_method
+        data['early_stop'] = self._early_stop
+
+        # data['start_dist'] = [list(self._start_dist[0]), list(self._start_dist[1])]
+
         super(HRBPE, self).save(path, data=data)
 
     def load(self, path):
         data = super(HRBPE, self).load(path)
 
         self._action_trace = [ScoredAction(a[0], count=a[2], score=a[3], type='merge' if a[1] else 'split') for a in data['action_trace']]
+
+        self._param_method = data['param_method']
+        self._reg_model = data['reg_model']
+        self._early_stop = data['early_stop']
+
+        # self._start_dist = (np.array(data['start_dist'][0]), np.array(data['start_dist'][1]))
+        #
+        # ws, fs = map(np.array, zip(*self._unigraph.most_common()))
+        # rs = np.array(range(1, len(fs) + 1))
+        # fmodel, _, _, _, px = get_model(
+        #     method=self._param_method, model_type=self._reg_model,
+        #     fs=fs, rs=rs, doc_fs=self._doc_unigraph,
+        # )
+        #
+        # self._start_model = fmodel
+        # self._start_params = px
 
         return data
         
@@ -167,6 +189,11 @@ class HRBPE(BPE):
         return self._early_stop and len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2]
 
     def display_epochs(self):
+        if self._start_dist is None:
+            print(f'Not currently saving starting distribution information...')
+            print('Insufficient data to re-create this figure')
+            return
+
         ws, fs = map(np.array, zip(*self._unigraph.most_common()))
         rs = np.arange(1, len(ws) + 1)
 
