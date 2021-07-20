@@ -95,7 +95,7 @@ class HRBPE(BPE):
         self._start_model = fmodel
         self._start_params = px
 
-    def get_actions(self, batch_size):
+    def get_actions(self, batch_size, actions_per_batch):
         ws, fs = map(np.array, zip(*self._unigraph.most_common()))
         rs = np.array(range(1, len(fs) + 1))
         ranks = {w: ix + 1 for ix, w in enumerate(ws)}
@@ -170,7 +170,7 @@ class HRBPE(BPE):
         # sub-sample actions
         all_actions = split_actions + merge_actions
         Ps = softmax(-np.array([a.score for a in all_actions]) / (fnorm * np.log10(n) * num_characters))
-        action_indices = set(np.random.choice(list(range(len(all_actions))), replace=False, p=Ps, size=batch_size))
+        action_indices = set(np.random.choice(list(range(len(all_actions))), replace=False, p=Ps, size=actions_per_batch))
 
         return [a for i, a in enumerate(all_actions) if i in action_indices]
 

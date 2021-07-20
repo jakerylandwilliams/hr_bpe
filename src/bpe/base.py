@@ -198,12 +198,17 @@ class BPE(Tokenizer):
         else:
             raise ValueError(f'Unrecognized document pre-processing method: {method}')
 
-    def fit(self, num_batches, batch_size=1, seed=None):
+    def fit(self, num_batches, batch_size=1, actions_per_batch=None, seed=None):
         if seed:
             np.random.seed(seed=seed)
 
+        if actions_per_batch is None:
+            actions_per_batch = batch_size
+        elif actions_per_batch > batch_size:
+            actions_per_batch = batch_size
+
         for batch in tqdm(range(num_batches), desc='Fitting'):
-            actions = self.rank_actions(self.get_actions(batch_size))[:batch_size]
+            actions = self.rank_actions(self.get_actions(batch_size, actions_per_batch))[:batch_size]
 
             for action in actions:
                 if action.type == 'merge':
@@ -387,7 +392,7 @@ class BPE(Tokenizer):
             self._doc_unigraph[texti][wpair[1]] += 1
 
     @abstractmethod
-    def get_actions(self, batch_size):
+    def get_actions(self, batch_size, actions_per_batch):
         raise NotImplementedError
 
     @abstractmethod

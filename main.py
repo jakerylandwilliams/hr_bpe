@@ -38,6 +38,8 @@ if __name__ == '__main__':
     # batch_size = 100
     batch_size = 250
 
+    actions_per_batch = batch_size
+
     # method = 'greedy'
     method = 'hr-bpe'
 
@@ -60,10 +62,10 @@ if __name__ == '__main__':
     # docs = [x['text'] for x in json.load(open('./data/newstweet-sample-linked.json')) if x['tweets']]
 
     if method == 'greedy':
-        model_str = f'{method}_{init_method}_{num_batches}_{batch_size}'
+        model_str = f'{method}_{init_method}_{num_batches}_{batch_size}_{actions_per_batch}'
         model = GreedyBPE()
     elif method == 'hr-bpe':
-        model_str = f'{method}_{init_method}_{num_batches}_{batch_size}_{reg_model}_{param_method}'
+        model_str = f'{method}_{init_method}_{num_batches}_{batch_size}_{actions_per_batch}_{reg_model}_{param_method}'
         model = HRBPE(param_method=param_method, reg_model=reg_model)
     else:
         raise ValueError
@@ -71,7 +73,7 @@ if __name__ == '__main__':
         model.load('cache/' + model_str + '.json')
     except FileNotFoundError:
         model.init(docs, seed=seed, method=init_method)
-        model.fit(num_batches, batch_size, seed=seed)
+        model.fit(num_batches, batch_size, actions_per_batch=actions_per_batch, seed=seed)
 
         model.save('cache/' + model_str + '.json')
 
