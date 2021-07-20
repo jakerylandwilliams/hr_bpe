@@ -15,7 +15,7 @@ class ScoredAction(Action):
 
     def __init__(self, pair, type='merge', count=-1, score=0.0):
         super(ScoredAction, self).__init__(pair, type=type, count=count)
-        self.score = score
+        self.score = float(score)
 
     def __eq__(self, other):
         return self.score == other.score

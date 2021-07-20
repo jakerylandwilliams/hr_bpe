@@ -20,7 +20,7 @@ class Action:
     def __init__(self, pair, type='merge', count=-1):
         self.pair = pair
         self.type = type
-        self.count = count
+        self.count = int(count)
 
 
 class Tokenizer(ABC):
