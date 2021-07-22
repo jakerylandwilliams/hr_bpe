@@ -30,19 +30,19 @@ if __name__ == '__main__':
     # init_method = 'warm'
     # init_method = 'rand'
 
-    num_batches = 1_00
+    num_batches = 100
     # num_batches = 10_000
 
     # batch_size = 1
     # batch_size = 10
     # batch_size = 100
-    batch_size = 250
+    batch_size = 100_000
 
     actions_per_batch = batch_size
 
     # method = 'greedy'
     method = 'hr-bpe'
-
+ 
     # reg_model = 'simon'
     reg_model = 'mixing'
     # reg_model = 'resonator'
@@ -52,14 +52,18 @@ if __name__ == '__main__':
     # param_method = 'est_theta'
     # param_method = 'regress'
     # param_method = 'regress_theta'
+
+    # early_stop = True
     
     docs = []
     datasets = []
+    filepaths = []
     for filepath in [fpath for fpath in os.listdir('./data/gold/'+language+'/') if '.json' in fpath]:
         datasets.append(json.load(open('./data/gold/'+language+'/'+filepath)))
-        docs += ["".join(x) for x in datasets[-1].values()]
+        filepaths.append(filepath)
+        # docs += ["".join(x) for x in datasets[-1].values()]
     
-    # docs = [x['text'] for x in json.load(open('./data/newstweet-sample-linked.json')) if x['tweets']]
+    docs = [x['text'] for x in json.load(open('./data/newstweet-sample-linked.json')) if x['tweets']]
 
     if method == 'greedy':
         model_str = f'{method}_{init_method}_{num_batches}_{batch_size}_{actions_per_batch}'
@@ -77,9 +81,45 @@ if __name__ == '__main__':
 
         model.save('cache/' + model_str + '.json')
 
-    model.display(model_type=reg_model, method=param_method)
+    # model.display(model_type=reg_model, method=param_method)
 
-    if method == 'hr-bpe':
-        model.display_epochs()
+#     if method == 'hr-bpe':
+#         model.display_epochs()
 
-    print(model.encode('Hunter Heidenreich'))
+#     print(model.encode('Hunter Heidenreich'), [model.decode([x]) for x in model.encode('Hunter Heidenreich')],
+#           [model.decode([x]) for x in model.encode('This that and the other thing!')])
+
+    import numpy as np
+    def get_spans(tokens):
+        locs = [0] + list(np.cumsum([len(t) for t in tokens]))
+        return list(zip(locs[0:-1],locs[1:]))
+
+    def eval_segmentation(ts, ts_hat):
+        y = set(get_spans(ts)); y_hat = set(get_spans(ts_hat))
+        TP = len(y_hat.intersection(y)); FP = len(y_hat - y); FN = len(y - y_hat)
+        P = TP/(TP+FP) if (TP+FP) else 0
+        R = TP/(TP+FN) if (TP+FN) else 0
+        F1 = 2*P*R/(P+R) if (P+R) else 0
+        return P, R, F1
+
+    def eval_dataset(dataset):
+        Ps, Rs, F1s = [], [], []
+        for ts in list(dataset.values()):
+            if not ts:
+                continue
+            ts_hat = model.tokenize(''.join(ts))
+            print('record: ',''.join(ts))
+            if not len("".join(ts)) == len("".join(ts_hat)):
+                print('guess:  ',''.join(ts_hat))
+            # assert len("".join(ts)) == len("".join(ts_hat))
+            P, R, F1, = eval_segmentation(ts, ts_hat)
+            Ps.append(P); Rs.append(R); F1s.append(F1)
+            print(P, R, F1)
+            print("")
+        return Ps, Rs, F1s
+
+    for di, dataset in enumerate(datasets):
+        Ps, Rs, F1s = eval_dataset(dataset)
+        print(filepaths[di], np.mean(Ps), np.mean(Rs), np.mean(F1s))
+        break
+

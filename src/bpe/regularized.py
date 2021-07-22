@@ -169,10 +169,14 @@ class HRBPE(BPE):
 
         # sub-sample actions
         all_actions = split_actions + merge_actions
-        Ps = softmax(-np.array([a.score for a in all_actions]) / (fnorm * np.log10(n) * num_characters))
-        action_indices = set(np.random.choice(list(range(len(all_actions))), replace=False, p=Ps, size=actions_per_batch))
+        if all_actions:    
+            Ps = softmax(-np.array([a.score for a in all_actions]) / (fnorm * np.log10(n) * num_characters))
+            action_indices = set(np.random.choice(list(range(len(all_actions))), replace=False, p=Ps, 
+                                                  size=min([actions_per_batch, len(all_actions)])))
 
-        return [a for i, a in enumerate(all_actions) if i in action_indices]
+            return [a for i, a in enumerate(all_actions) if i in action_indices]
+        else:
+            return []
 
     def rank_actions(self, actions):
         ranked = sorted(actions, key=lambda a: a.score)

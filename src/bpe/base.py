@@ -216,7 +216,7 @@ class BPE(Tokenizer):
                 else:
                     self.split(action.pair)
 
-            if self.do_break_early():
+            if self.do_break_early() or not actions:
                 break
 
         for k in self._unigraph.keys():
