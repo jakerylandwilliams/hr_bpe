@@ -173,7 +173,7 @@ class HRBPE(BPE):
     def do_break_early(self):
         return self._early_stop and len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2]
 
-    def display_epochs(self):
+    def display_epochs(self, fname = ''):
         if self._start_dist is None:
             print(f'Not currently saving starting distribution information...')
             print('Insufficient data to re-create this figure')
@@ -226,4 +226,7 @@ class HRBPE(BPE):
         plt.yticks(fontsize=25)
         _ = plt.legend(fontsize=25, loc='upper right')
 
-        plt.show()
+        if fname:
+            plt.savefig(fname, pad_inches=0.1)
+        else:
+            plt.show()

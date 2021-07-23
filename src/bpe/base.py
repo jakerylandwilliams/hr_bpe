@@ -124,18 +124,18 @@ class Tokenizer(ABC):
 
     def apply_action_trace(self, text):
         mock = BPE()
-        mock.init(text, method='char', apply=True)
+        mock.init([text], method='char', apply=True)
 
         for action in self._action_trace:
             if action.type == 'merge':
                 mock.merge(action.pair)
             else:
                 mock.split(action.pair)
-
         tks = []
         for t, idxs in mock._tok_idx.items():
             for ix in idxs:
                 tks.append((t, ix))
+
         tks.sort(key=lambda ti: ti[1])
         tks, _ = zip(*tks)
         return tks
@@ -443,7 +443,7 @@ class BPE(Tokenizer):
     def do_break_early(self):
         return False
 
-    def display(self, model_type='mixing', method='est_type'):
+    def display(self, model_type='mixing', method='est_type', fname = ''):
         ws, fs = map(np.array, zip(*self._unigraph.most_common()))
         rs = np.arange(1, len(ws) + 1)
 
@@ -460,5 +460,8 @@ class BPE(Tokenizer):
         plt.xticks(fontsize=25)
         plt.yticks(fontsize=25)
         _ = plt.legend(fontsize=25)
+        if fname:
+            plt.savefig(fname, pad_inches=0.1)
+        else:
+            plt.show()
 
-        plt.show()
