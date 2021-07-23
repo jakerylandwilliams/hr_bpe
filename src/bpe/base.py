@@ -23,6 +23,19 @@ class Action:
         self.count = int(count)
 
 
+class ScoredAction(Action):
+
+    def __init__(self, pair, type='merge', count=-1, score=0.0):
+        super(ScoredAction, self).__init__(pair, type=type, count=count)
+        self.score = float(score)
+
+    def __eq__(self, other):
+        return self.score == other.score
+
+    def __gt__(self, other):
+        return self.score > other.score
+
+
 class Tokenizer(ABC):
 
     def __init__(self, tok2ind=None):
@@ -32,6 +45,7 @@ class Tokenizer(ABC):
             self._tok2ind = tok2ind
 
         self._ind2tok = {v: k for k, v in self._tok2ind.items()}
+        self._action_trace = []
 
     def __len__(self):
         return len(self._tok2ind)
@@ -63,6 +77,8 @@ class Tokenizer(ABC):
             data = {}
 
         data['tok2ind'] = self._tok2ind
+        data['action_trace'] = [[a.pair, 1 if a.type == 'merge' else 0, a.count, a.score] for a in self._action_trace]
+
         json.dump(data, open(path, 'w+'))
 
     def load(self, path):
@@ -70,6 +86,8 @@ class Tokenizer(ABC):
 
         self._tok2ind = data['tok2ind']
         self._ind2tok = {v: k for k, v in self._tok2ind.items()}
+        self._action_trace = [ScoredAction(tuple(a[0]), count=a[2], score=a[3], type='merge' if a[1] else 'split') for a in
+                              data['action_trace']]
 
         return data
 
@@ -85,20 +103,42 @@ class Tokenizer(ABC):
         return self.tokens_to_indices(self.tokenize(text))
 
     def tokenize(self, text, start=-1):
-        for ix in range(len(self._tok2ind) - 1 if start < 0 else start, -1, -1):
-            tok = self._ind2tok[ix]
-            if text == tok:
-                return [tok]
-            elif tok in text:
-                segs = text.split(tok)
-                enc = []
-                for s in segs:
-                    if s:
-                        enc.extend(self.tokenize(s, start=ix - 1))
-                    enc.append(tok)
-                return enc[:-1]
+        if not self._action_trace:
+            # this probably has a bug in it...
+            for ix in range(len(self._tok2ind) - 1 if start < 0 else start, -1, -1):
+                tok = self._ind2tok[ix]
+                if text == tok:
+                    return [tok]
+                elif tok in text:
+                    segs = text.split(tok)
+                    enc = []
+                    for s in segs:
+                        if s:
+                            enc.extend(self.tokenize(s, start=ix - 1))
+                        enc.append(tok)
+                    return enc[:-1]
 
-        return []
+            return []
+        else:
+            return self.apply_action_trace(text)
+
+    def apply_action_trace(self, text):
+        mock = BPE()
+        mock.init(text, method='char', apply=True)
+
+        for action in self._action_trace:
+            if action.type == 'merge':
+                mock.merge(action.pair)
+            else:
+                mock.split(action.pair)
+
+        tks = []
+        for t, idxs in mock._tok_idx.items():
+            for ix in idxs:
+                tks.append((t, ix))
+        tks.sort(key=lambda ti: ti[1])
+        tks, _ = zip(*tks)
+        return tks
 
     def decode(self, indices):
         return ''.join(self.indices_to_tokens(indices))
@@ -150,12 +190,12 @@ class BPE(Tokenizer):
 
         return data
 
-    def init(self, docs, seed=None, method='char'):
+    def init(self, docs, seed=None, method='char', apply=False):
         if seed:
             np.random.seed(seed=seed)
 
         offset = 0
-        for doc_idx, doc in enumerate(tqdm(docs, desc=f'Initializing')):
+        for doc_idx, doc in enumerate(docs if apply else tqdm(docs, desc=f'Initializing')):
 
             stream = self._init_doc(doc, method=method)
             assert (sum(map(len, stream)) == len(doc))
@@ -208,7 +248,7 @@ class BPE(Tokenizer):
             actions_per_batch = batch_size
 
         for batch in tqdm(range(num_batches), desc='Fitting'):
-            actions = self.rank_actions(self.get_actions(batch_size, actions_per_batch))[:batch_size]
+            actions = self.rank_actions(self.get_actions(batch_size, actions_per_batch)) # [:batch_size]
 
             for action in actions:
                 if action.type == 'merge':
@@ -216,10 +256,13 @@ class BPE(Tokenizer):
                 else:
                     self.split(action.pair)
 
+                self._action_trace.append(action)
+
             if self.do_break_early() or not actions:
                 break
 
-        for k in self._unigraph.keys():
+        # for k in self._unigraph.keys():
+        for k, v in sorted(self._unigraph.items(), key=lambda kv: kv[1], reverse=True):
             self.add_type(k)
 
         print(f'Built a vocabulary of {len(self)} types')
@@ -391,11 +434,9 @@ class BPE(Tokenizer):
             self._doc_unigraph[texti][wpair[0]] += 1
             self._doc_unigraph[texti][wpair[1]] += 1
 
-    @abstractmethod
     def get_actions(self, batch_size, actions_per_batch):
         raise NotImplementedError
 
-    @abstractmethod
     def rank_actions(self, actions):
         raise NotImplementedError
 

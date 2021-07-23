@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .base import Action
+from .base import ScoredAction
 from .base import BPE
 
 from ..harmonic import get_model
@@ -9,19 +9,6 @@ from ..harmonic import get_sizeranks
 
 from ..utils import rankguess
 from ..utils import softmax
-
-
-class ScoredAction(Action):
-
-    def __init__(self, pair, type='merge', count=-1, score=0.0):
-        super(ScoredAction, self).__init__(pair, type=type, count=count)
-        self.score = float(score)
-
-    def __eq__(self, other):
-        return self.score == other.score
-
-    def __gt__(self, other):
-        return self.score > other.score
 
 
 class HRBPE(BPE):
@@ -32,7 +19,6 @@ class HRBPE(BPE):
         self._NLLs = []
         self._Vs = []
         self._MNLLs = []
-        self._action_trace = []
         self._recent_actions = set()
 
         self._start_dist = None
@@ -47,8 +33,6 @@ class HRBPE(BPE):
         if data is None:
             data = {}
 
-        data['action_trace'] = [[a.pair, 1 if a.type == 'merge' else 0, a.count, a.score] for a in self._action_trace]
-
         data['reg_model'] = self._reg_model
         data['param_method'] = self._param_method
         data['early_stop'] = self._early_stop
@@ -59,8 +43,6 @@ class HRBPE(BPE):
 
     def load(self, path):
         data = super(HRBPE, self).load(path)
-
-        self._action_trace = [ScoredAction(a[0], count=a[2], score=a[3], type='merge' if a[1] else 'split') for a in data['action_trace']]
 
         self._param_method = data['param_method']
         self._reg_model = data['reg_model']
@@ -184,7 +166,6 @@ class HRBPE(BPE):
         # add for logging
         for a in ranked:
             self._MNLLs.append(a.score)
-            self._action_trace.append(a)
             self._recent_actions.add(a.pair)
 
         return ranked
