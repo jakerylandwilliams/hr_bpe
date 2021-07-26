@@ -10,7 +10,7 @@ if __name__ == '__main__':
     os.makedirs('img/', exist_ok=True)
     seed = 691
 
-    language = 'EN'
+#     language = 'EN'
 #     language = 'PL'
 #     language = 'IT'
 #     language = 'HI'
@@ -20,7 +20,7 @@ if __name__ == '__main__':
 #     language = 'EU'
 #     language = 'EL'
 #     language = 'DE'
-#     language = 'ZH'
+    language = 'ZH'
 #     language = 'TR'
 #     language = 'SV'
 #     language = 'RO'
@@ -123,7 +123,7 @@ if __name__ == '__main__':
         return Ps, Rs, F1s
 
     if language == "ZH":
-        dataset = json.load(open('./data/gold/'+language+'/icwb2-' + test_set + '.json'))
+        dataset = json.load(open('./data/gold/'+language+'/' + test_set + '.json'))
         Ps, Rs, F1s = eval_dataset(dataset)
         print(test_set, ': P: ', np.mean(Ps), 'R: ',  np.mean(Rs), 'F1: ', np.mean(F1s))
     elif language == "EN":
