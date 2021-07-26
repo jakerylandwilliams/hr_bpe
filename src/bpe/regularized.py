@@ -170,8 +170,8 @@ class HRBPE(BPE):
 
         return ranked
 
-    def do_break_early(self):
-        return self._early_stop and len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2]
+    def do_break_early(self): 
+        return self._early_stop and min(self._NLLs) < self._NLLs[0] and len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2] 
 
     def display_epochs(self, fname = ''):
         if self._start_dist is None:

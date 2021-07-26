@@ -88,7 +88,15 @@ class Tokenizer(ABC):
         self._ind2tok = {v: k for k, v in self._tok2ind.items()}
         self._action_trace = [ScoredAction(tuple(a[0]), count=a[2], score=a[3], type='merge' if a[1] else 'split') for a in
                               data['action_trace']]
-
+        self._tok2acts = defaultdict(list)
+        for aix, a in enumerate(self._action_trace):
+            if a.type =='split':
+                self._tok2acts["".join(a.pair)].append(aix)
+            else:
+                self._tok2acts[a.pair[0]].append(aix)
+                self._tok2acts[a.pair[1]].append(aix)
+        self._maxtoklen = max([len(t) for t in self._tok2ind])
+        
         return data
 
     @abstractmethod
@@ -125,8 +133,17 @@ class Tokenizer(ABC):
     def apply_action_trace(self, text):
         mock = BPE()
         mock.init([text], method='char', apply=True)
-
-        for action in self._action_trace:
+        possible_tokens = set()
+        for l in range(1,self._maxtoklen+1):
+            for start in range(len(text)-l+1):
+                ngram = text[start:start+l]
+                possible_tokens.add(ngram)
+        available_action_indices = []
+        for ngram in possible_tokens:
+            available_action_indices.extend(self._tok2acts[ngram])
+        available_action_indices = sorted(set(available_action_indices))
+        for aix in available_action_indices:
+            action = self._action_trace[aix]
             if action.type == 'merge':
                 mock.merge(action.pair)
             else:
@@ -264,6 +281,15 @@ class BPE(Tokenizer):
         # for k in self._unigraph.keys():
         for k, v in sorted(self._unigraph.items(), key=lambda kv: kv[1], reverse=True):
             self.add_type(k)
+
+        self._tok2acts = defaultdict(list)
+        for aix, a in enumerate(self._action_trace):
+            if a.type =='split':
+                self._tok2acts["".join(a.pair)].append(aix)
+            else:
+                self._tok2acts[a.pair[0]].append(aix)
+                self._tok2acts[a.pair[1]].append(aix)
+        self._maxtoklen = max([len(t) for t in self._tok2ind])
 
         print(f'Built a vocabulary of {len(self)} types')
 
