@@ -2,4 +2,7 @@
 venv/
 cache/
 data/
+*.ipynb
+.ipynb_checkpoints/
+img/
 __pycache__/

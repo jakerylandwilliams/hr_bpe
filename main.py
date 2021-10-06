@@ -10,7 +10,7 @@ if __name__ == '__main__':
     os.makedirs('img/', exist_ok=True)
     seed = 691
 
-#     language = 'EN'
+    # language = 'EN'
 #     language = 'PL'
 #     language = 'IT'
 #     language = 'HI'
