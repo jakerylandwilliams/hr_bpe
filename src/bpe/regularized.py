@@ -13,8 +13,9 @@ from ..utils import softmax
 
 class HRBPE(BPE):
 
-    def __init__(self, tok2ind=None, reg_model='mixing', param_method='est_type', early_stop=False):
-        super().__init__(tok2ind=tok2ind)
+    def __init__(self, tok2ind=None, covering_vocab = set(), reg_model='mixing', param_method='est_type', early_stop=False):
+        
+        super().__init__(tok2ind=tok2ind, covering_vocab = covering_vocab)
 
         self._NLLs = []
         self._Vs = []
@@ -28,7 +29,7 @@ class HRBPE(BPE):
         self._param_method = param_method
         self._reg_model = reg_model
         self._early_stop = early_stop
-
+        
     def save(self, path, data=None):
         if data is None:
             data = {}
@@ -62,19 +63,21 @@ class HRBPE(BPE):
 
         return data
         
-    def init(self, docs, seed=None, method='char'):
-        super(HRBPE, self).init(docs, seed=seed, method=method)
+    def init(self, docs, seed=None, method='char', covering = [], action_protect = ''):
+        self._init_method = method
+        super(HRBPE, self).init(docs, seed=seed, method=method, covering = covering, action_protect = action_protect)
 
         ws, fs = map(np.array, zip(*self._unigraph.most_common()))
         rs = np.array(range(1, len(fs) + 1))
         self._start_dist = np.log10(rs), np.log10(fs / fs.sum())
 
-        fmodel, _, _, _, px = get_model(
+        fmodel, _, _, phat, px = get_model(
             method=self._param_method, model_type=self._reg_model,
             fs=fs, rs=rs, doc_fs=self._doc_unigraph,
         )
 
         self._start_model = fmodel
+        self._start_phat = phat
         self._start_params = px
 
     def get_actions(self, batch_size, actions_per_batch):
@@ -132,6 +135,7 @@ class HRBPE(BPE):
                 continue
 
             newtok = "".join(pair)
+            
             fco = self._unigraph.get(newtok, 0)
             fp0 = self._unigraph.get(pair[0], 0)
             fp1 = self._unigraph.get(pair[1], 0)
@@ -187,44 +191,44 @@ class HRBPE(BPE):
             fs=fs, rs=rs, doc_fs=self._doc_unigraph,
         )
 
-        fig = plt.figure(figsize=(12, 12))
+        fig = plt.figure(figsize=(10, 10))
 
         fig.add_axes([0, 0, 1, 1])
-        plt.plot(np.log10(rs), np.log10(self._start_model(rs) / self._start_model(rs).sum()), color='pink', lw=5,
-                 label='Starting regularization', linestyle='dashed')
         plt.plot(self._start_dist[0], self._start_dist[1], color='gray', lw=5, label='Starting distribution')
-        plt.plot(np.log10(rs), np.log10(fmodel(rs) / fmodel(rs).sum()), label='Converged regularization', color='red',
-                 linestyle='dashed', lw=5)
+        plt.plot(self._start_dist[0], np.log10(self._start_phat), color='pink', lw=4,
+                 label='Starting regularization', linestyle='dashed')
         plt.plot(np.log10(rs), np.log10(fs / fs.sum()), color='black', lw=5,
                  label='Converged HR-BPE (' + str(len(self._NLLs)) + ' iterations)')
-        plt.xlabel(r'$\log_{10} r$ Rank', fontsize=25)
-        plt.ylabel(r'$\log_{10} p$ Normalized frequency', fontsize=25)
-        plt.xticks(fontsize=25)
-        plt.yticks(fontsize=25)
+        plt.plot(np.log10(rs), np.log10(phat), label='Converged regularization', color='red',
+                 linestyle='dashed', lw=4)
+        plt.xlabel(r'$\log_{10} r$ Rank', fontsize=20)
+        plt.ylabel(r'$\log_{10} p$ Normalized frequency', fontsize=20)
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
         plt.ylim([self._start_dist[1][-1] - 0.1, 0])
-        _ = plt.legend(fontsize=25, loc='lower left')
+        _ = plt.legend(fontsize=20, loc='lower left')
 
         # fig = plt.figure(figsize = (12,12))
 
-        fig.add_axes([0.5, 0.55, 0.4, 0.4])
+        fig.add_axes([0.55, 0.6, 0.35, 0.35])
         merge_num = range(1, len(self._NLLs) + 1)
 
         plt.plot(merge_num, self._NLLs, color='black', lw=3, linestyle='dashed',
                  label=r"$\mathcal{E}$")
-        plt.xlabel(r'$n$ Epoch number', fontsize=25)
-        plt.ylabel(r'$\mathcal{E}$ Normalized entropy', fontsize=25)
+        plt.xlabel(r'$n$ Epoch number', fontsize=20)
+        plt.ylabel(r'$\mathcal{E}$ Normalized entropy', fontsize=20)
         plt_xticks = np.arange(int(min(merge_num)), int(max(merge_num)) + 1, 1.0)[::5] - 1
         plt.xticks(plt_xticks, fontsize=25)
         plt.xlim([min(plt_xticks), max(plt_xticks)])
-        plt.yticks(fontsize=25)
-        _ = plt.legend(fontsize=25, loc='lower right')
+        plt.yticks(fontsize=20)
+        _ = plt.legend(fontsize=20, loc='lower right')
 
         ax2 = plt.twinx()
         ax2.plot(merge_num, np.log10(self._Vs), color='black', lw=3, linestyle='dotted',
                  label=r"$|V|$")
-        ax2.set_ylabel(r'$\log_{10}|V|$ Vocab. size', fontsize=25)
-        plt.yticks(fontsize=25)
-        _ = plt.legend(fontsize=25, loc='upper right')
+        ax2.set_ylabel(r'$\log_{10}|V|$ Vocab. size', fontsize=20)
+        plt.yticks(fontsize=20)
+        _ = plt.legend(fontsize=20, loc='upper right')
 
         if fname:
             plt.savefig(fname, pad_inches=0.1)

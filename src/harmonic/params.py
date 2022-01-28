@@ -124,6 +124,9 @@ def get_model(method='est_type', model_type='mixing', rs=None, fs=None, doc_fs=N
 
     sizeranks = get_sizeranks(fs, rs)
     fhat = fmodel(np.array([sizeranks[f] for f in fs]))
+    #
+    fhat = np.floor(fhat*sum(fs)/sum(fhat)); fhat[fhat==0] = 1
+    #
     fnorm = sum(fhat)
     phat = fhat / fnorm
 

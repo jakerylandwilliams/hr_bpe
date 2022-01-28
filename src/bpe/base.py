@@ -1,4 +1,4 @@
-import json
+import json, re
 
 from abc import ABC
 from abc import abstractmethod
@@ -132,7 +132,7 @@ class Tokenizer(ABC):
 
     def apply_action_trace(self, text):
         mock = BPE()
-        mock.init([text], method='char', apply=True)
+        mock.init([text], method=self._init_method, apply=True) # method='char'
         possible_tokens = set()
         for l in range(1,self._maxtoklen+1):
             for start in range(len(text)-l+1):
@@ -169,7 +169,18 @@ class Tokenizer(ABC):
 
 class BPE(Tokenizer):
 
-    def __init__(self, tok2ind=None):
+    def __init__(self, tok2ind=None, covering_vocab = set()):
+        # defining a covering vocabulary restricts merge/split-able pathways
+        self._covering_vocab = covering_vocab
+        self._covered = {}
+        self._covering = {}
+        if self._covering_vocab:
+            if tok2ind:
+                tok2ind = {t: i for i, t in enumerate(set(list(tok2ind.keys())+list(self._covering_vocab)))}
+            else:
+                tok2ind = {t: i for i, t in enumerate(self._covering_vocab)}
+        
+        # initialize token index, now that the cover is included
         super().__init__(tok2ind=tok2ind)
 
         # starting and ending points for each token (as a set for constant lookup)
@@ -184,7 +195,7 @@ class BPE(Tokenizer):
         # mapping to and from indices
         self._tok_idx = defaultdict(set)
         self._pair_idx = defaultdict(set)
-        self._char2docidx = {}
+        self._char2docidx = {}        
 
     def save(self, path, data=None):
         if data is None:
@@ -207,7 +218,33 @@ class BPE(Tokenizer):
 
         return data
 
-    def init(self, docs, seed=None, method='char', apply=False):
+    def init(self, docs, seed=None, method='char', apply=False, covering = [], action_protect = ''):
+        self._init_method = method
+        self._action_protect = action_protect
+        ## guarentees a covering
+        self._covering = {}
+        self._hascover = bool(covering)
+        ix = 0
+        if covering:
+            # assert(len(docs) == len(covering))
+            for doc, segmentation in zip(docs, covering):
+                for s_ix, s in enumerate(segmentation):
+                    for ch in s:
+                        self._covering[ix] = s_ix
+                        ix += 1
+                ix += 1
+                
+        d_ix = 0
+        s_ix = max(self._covering.values()) if self._covering else -1
+        for doc in docs:
+            if d_ix + len(doc) > ix:
+                s_ix += 1
+            for ch in doc:
+                if d_ix > ix:
+                    self._covering[d_ix] = s_ix
+                d_ix += 1
+            d_ix += 1
+        ##
         if seed:
             np.random.seed(seed=seed)
 
@@ -254,6 +291,56 @@ class BPE(Tokenizer):
             return [d[topidx[idx - 1]:topidx[idx]] for idx in range(1, len(topidx))]
         else:
             raise ValueError(f'Unrecognized document pre-processing method: {method}')
+            
+    def under_cover(self, pair): # for span-level covering
+        newtok = "".join(pair)
+        skip_next = False
+        for i in sorted(list(self._pair_idx[pair])):
+            if skip_next:  # handle odd numbers of repeated tokens
+                skip_next = False
+                continue
+            skip_next = True if pair[0] == pair[1] and pair[1] == self._lefts[i + len(pair[0])][1] else False
+            if (i in self._covering) and (i+len(newtok)-1 in self._covering):
+                if self._covering[i] != self._covering[i+len(newtok)-1]:
+                    return False
+            elif (i in self._covering) or ((i+len(newtok)-1) in self._covering):
+                return False                
+        else:
+            return True
+        
+    def split_under_cover(self, wpair): # for span-level covering
+        oldtok = "".join(wpair)
+        locations = list(self._tok_idx[oldtok])
+        for i in sorted(locations):
+            if (self._covering[i] != self._covering[i+len(wpair[0])-1] or 
+                self._covering[i+len(wpair[0])] != self._covering[i+len(wpair[0])+len(wpair[1])-1]):
+                return False
+        else:
+            return True
+        
+    def is_covered(self, newtok): # for vocab-level covering
+        if newtok in self._covered: 
+            return self._covered[newtok]
+        else:
+            for cover_token in self._covering_vocab:
+                if newtok in cover_token:
+                    self._covered[newtok] = True
+                    return self._covered[newtok]
+            else:
+                self._covered[newtok] = False
+                return self._covered[newtok]
+    
+    def is_covering(self, newtok): # for vocab-level covering
+        if newtok in self._covering: 
+            return self._covering[newtok]
+        else:
+            for cover_token in self._covering_vocab:
+                if cover_token in newtok:
+                    self._covering[newtok] = True
+                    return self._covering[newtok]
+            else:
+                self._covering[newtok] = False
+                return self._covering[newtok]
 
     def fit(self, num_batches, batch_size=1, actions_per_batch=None, seed=None):
         if seed:
@@ -269,8 +356,30 @@ class BPE(Tokenizer):
 
             for action in actions:
                 if action.type == 'merge':
+                    ## Different criteria for avoiding merges
+                    newtok = "".join(action.pair)
+                    if self._action_protect:
+                        if re.search("("+"|".join(self._action_protect)+")", newtok): continue
+                    if self._hascover:
+                        if not self.under_cover(action.pair):
+                            continue
+                    if self._covering_vocab:
+                        if (not self.is_covered(newtok)) and (not self.is_covering(newtok)):
+                            continue
                     self.merge(action.pair)
                 else:
+                    ## Different criteria for avoiding splits
+                    if self._action_protect:
+                        if (re.search("("+"|".join(self._action_protect)+")", action.pair[0]) or
+                            re.search("("+"|".join(self._action_protect)+")", action.pair[1])): 
+                            continue
+                    if self._hascover:
+                        if not self.split_under_cover(action.pair):
+                            continue
+                    if self._covering_vocab:
+                        if (((not self.is_covered(action.pair[0])) and (not self.is_covering(action.pair[0]))) or
+                            ((not self.is_covered(action.pair[1])) and (not self.is_covering(action.pair[1])))):
+                            continue
                     self.split(action.pair)
 
                 self._action_trace.append(action)
