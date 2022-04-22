@@ -89,10 +89,14 @@ class Tokenizer(ABC):
         self._action_trace = [ScoredAction(tuple(a[0]), count=a[2], score=a[3], type='merge' if a[1] else 'split') for a in
                               data['action_trace']]
         self._tok2acts = defaultdict(list)
+        self._pair2merge = dict()
+        self._tok2splits = defaultdict(list)
         for aix, a in enumerate(self._action_trace):
             if a.type =='split':
                 self._tok2acts["".join(a.pair)].append(aix)
+                self._tok2splits["".join(a.pair)].append(aix)
             else:
+                self._pair2merge[tuple(a.pair)] = aix
                 self._tok2acts[a.pair[0]].append(aix)
                 self._tok2acts[a.pair[1]].append(aix)
         self._maxtoklen = max([len(t) for t in self._tok2ind])
@@ -129,20 +133,30 @@ class Tokenizer(ABC):
             return []
         else:
             return self.apply_action_trace(text)
+        
+    def update_action_indices(self, available_action_indices, model, prev_aix = -1, observed = set()):
+        available_action_indices = sorted(list(filter(lambda next_aix: next_aix > prev_aix, available_action_indices)) + 
+                                          [next_aix for next_aix in [aix for tok in model._unigraph 
+                                                                     for aix in self._tok2splits[tok] if tok not in observed] + 
+                                                                    [self._pair2merge[pair] for pair in model._digraph
+                                                                     if pair not in observed and pair in self._pair2merge]
+                                           if next_aix > prev_aix])
+        observed = observed.union(set(model._unigraph.keys()).union(set(model._digraph.keys())))
+        return available_action_indices, observed
 
     def apply_action_trace(self, text):
         mock = BPE()
         mock.init([text], method=self._init_method, apply=True) # method='char'
-        possible_tokens = set()
-        for l in range(1,self._maxtoklen+1):
-            for start in range(len(text)-l+1):
-                ngram = text[start:start+l]
-                possible_tokens.add(ngram)
-        available_action_indices = []
-        for ngram in possible_tokens:
-            available_action_indices.extend(self._tok2acts[ngram])
-        available_action_indices = sorted(set(available_action_indices))
-        for aix in available_action_indices:
+        prev_aix = -1; available_action_indices = []; observed = set(); tokenizing = True
+        while tokenizing:
+            available_action_indices, observed = self.update_action_indices(available_action_indices, mock, 
+                                                                            prev_aix = prev_aix, observed = observed)
+            if available_action_indices:
+                aix = available_action_indices[0]
+            else:
+                tokenizing = False
+                break
+            prev_aix = aix
             action = self._action_trace[aix]
             if action.type == 'merge':
                 mock.merge(action.pair)
@@ -392,10 +406,14 @@ class BPE(Tokenizer):
             self.add_type(k)
 
         self._tok2acts = defaultdict(list)
+        self._pair2merge = dict()
+        self._tok2splits = defaultdict(list)
         for aix, a in enumerate(self._action_trace):
             if a.type =='split':
                 self._tok2acts["".join(a.pair)].append(aix)
+                self._tok2splits["".join(a.pair)].append(aix)
             else:
+                self._pair2merge[tuple(a.pair)] = aix
                 self._tok2acts[a.pair[0]].append(aix)
                 self._tok2acts[a.pair[1]].append(aix)
         self._maxtoklen = max([len(t) for t in self._tok2ind])
