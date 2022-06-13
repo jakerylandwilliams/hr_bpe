@@ -2,40 +2,39 @@ import re
 
 import numpy as np
 
-
-def tokenize(text, space=True):
+def tokenize(text, space = True, wordchars = "a-zA-Z0-9-'"):
     tokens = []
-    for token in re.split("([0-9a-zA-Z'-]+)", text):
+    for token in re.split("(["+wordchars+"]+)", text):
         if not space:
             token = re.sub("[ ]+", "", token)
-
         if not token:
             continue
-
-        if re.search("[0-9a-zA-Z'-]", token):
+        if re.search("["+wordchars+"]", token):
             tokens.append(token)
-        else:
+        else: 
             tokens.extend(token)
-
     return tokens
 
 
-def sentokenize(text, space=True):
+def sentokenize(text, space = True, delims = ".?!\n|\t:", sentchars = "a-zA-Z0-9-'"): # harmonize with hr-bpe
     sentences = []
-    for sentence in re.split("(\s+(?<=[.?!,;:\n][^a-zA-Z0-9])\s*)", text):
-        if len(sentence) == 1 and not re.search("[0-9a-zA-Z'-]", sentence[0]):
+    
+    for chunk in re.split("(\s*(?<=["+delims+"][^"+sentchars+"])\s*)", text):
+        if (len(chunk)==1 and not re.search("["+sentchars+"]", chunk[0])):
+            if space or (chunk[0] != " "):
+                if len(sentences):
+                    sentences[-1] = sentences[-1] + [chunk]  
+                else:
+                    sentences.append([chunk])
+        elif not re.search("["+sentchars+"]", chunk):
+            tokens = tokenize(chunk, space = space)
             if len(sentences):
-                sentences[-1] = sentences[-1] + [sentence]
-            else:
-                sentences.append([sentence])
-        elif not re.search("[0-9a-zA-Z'-]", sentence):
-            tokens = tokenize(sentence, space=space)
-            if len(sentences):
-                sentences[-1] = sentences[-1] + tokens
+                sentences[-1] = sentences[-1] + tokens  
             else:
                 sentences.append(tokens)
         else:
-            sentences.append(tokenize(sentence, space=space))
+            sentences.append(tokenize(chunk, space = space))
+    
     return sentences
 
 
