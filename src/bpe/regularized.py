@@ -1,18 +1,33 @@
-import matplotlib.pyplot as plt
 import numpy as np
-
+import matplotlib.pyplot as plt
 from .base import ScoredAction
 from .base import BPE
-
 from ..harmonic import get_model
 from ..harmonic import get_sizeranks
-
 from ..utils import rankguess
 from ..utils import softmax
 
-
+# purpose: instantiate a harmonically-regularized bpe model that accepts merges and/or split rules to optimize a harmonic vocabulary
+# arguments: (see __init__ method)
+# prereqs: (see base.BPE)
+# use methods: (see base.BPE). additionally:
+# - display_epochs: plot the rank-frequency distribution of the current segmentation of the system's ingested data, as well as a given frequency model and its convergence over optimization epochs
+# use attributes: (see base.BPE)
 class HRBPE(BPE):
-
+    # purpose: initialize a harmonically-regularized bpe model that accepts merges and/or split rules to optimize a harmonic vocabulary
+    # arguments:
+    # - tok2ind: (optional) dict, used by .load to set the index
+    # - covering_vocab: set, indicating a collection of strs that the tokenizer should consider as bounds for the result of all possible actions
+    # - reg_model: str, indicating the type of frequency model to use for regularization, with options from: 
+    # -- 'mixing': a simplified/approximate form for the mixing law, modeling an aggregation of multiple preferential selectiond documents
+    # -- 'simon': a form considering only the preferential selection mechansim (no document mixing)
+    # -- 'resonator':  a complex form for the mixing law, perhaps more accurately modeling an aggregation of multiple preferential selectiond documents
+    # - param_method: str, indicating the means by which frequency model parameters will be optimized, with options from: 
+    # -- 'regress': utilize gradient-based regression for all model parameters
+    # -- 'regress_theta': regress non-theta parameters and determine theta (the replication rate) via ad hoc/expectation-based estimation
+    # -- 'est_doc': utilize the known document distribution of ingested data to estimate natural parameters for the model
+    # -- 'est_theta': determine theta via an ad hoc/expectation-based estimation and derive other parameters via the mixing law's form
+    # - early_stop: bool, with True indicating the model should stop early, i.e., once no actions are predicted to optimize the negative log likelihood
     def __init__(self, tok2ind=None, covering_vocab = set(), reg_model='mixing', param_method='est_type', early_stop=False):
         
         super().__init__(tok2ind=tok2ind, covering_vocab = covering_vocab)
@@ -30,6 +45,11 @@ class HRBPE(BPE):
         self._reg_model = reg_model
         self._early_stop = early_stop
         
+    # purpose: save a model for later use
+    # arguments: (see base.BPE)
+    # - path: str, directory location where models are to be saved
+    # - data: dict, with fields 'tok2ind', and 'action_trace', which key a dictionary index mapping the vocabulary, and a list of ranked actions to apply as the tokenizers parameters.
+    # output: saved model parameters in the location defined by path
     def save(self, path, data=None):
         if data is None:
             data = {}
@@ -42,6 +62,11 @@ class HRBPE(BPE):
 
         super(HRBPE, self).save(path, data=data)
 
+    # purpose: load a saved model
+    # arguments: (see base.BPE)
+    # - path: str, directory location from which the model will be loaded
+    # prereqs: a saved model
+    # output: loaded model parameters for operation of a trained tokenizer
     def load(self, path):
         data = super(HRBPE, self).load(path)
 
@@ -63,6 +88,15 @@ class HRBPE(BPE):
 
         return data
         
+    # purpose: intialize a HR-BPE model
+    # arguments:
+    # - docs: list (corpus) of strs (document), containing the data on which the model will be trained
+    # - seed: int, indicating the seed of randomization
+    # - method: str, one from: 'char' (start from characters), 'warm' (start from a space-based segmentation), or 'rand' (start from a random segmentation)
+    # - covering: list (corpus) of lists (documents) of strs (tokens), representing a collection of token boundaries that must be observed during learning, i.e., restricting the learnable rules.
+    # - action_protect: list of strs, indicating regular expressions of that cannot be included in actions, protecting the model from, e.g., learning to merge known unwanted tokens
+    # prereqs: a corpus of document to either tokenize or initialize for training
+    # output: none, data are ingested and structured for learning or application of a model
     def init(self, docs, seed=None, method='char', covering = [], action_protect = ''):
         self._init_method = method
         super(HRBPE, self).init(docs, seed=seed, method=method, covering = covering, action_protect = action_protect)
@@ -80,6 +114,11 @@ class HRBPE(BPE):
         self._start_phat = phat
         self._start_params = px
 
+    # purpose: return a list of actions, ranked according to the contribution of each to the optimization of the harmonic negative log likelihood
+    # arguments:
+    # - batch_size: int, indicating the number of potentially-optimizing actions to rank per test batch (merge and split, each)
+    # - actions_per_batch: int, indicating the number of optimizing actions to sample and test for inclusion as learned rules, per test batch 
+    # output: list of ScoredAction objects
     def get_actions(self, batch_size, actions_per_batch):
         ws, fs = map(np.array, zip(*self._unigraph.most_common()))
         rs = np.array(range(1, len(fs) + 1))
@@ -164,6 +203,10 @@ class HRBPE(BPE):
         else:
             return []
 
+    # purpose: rank a list of actions according to the system's current negative log likelihood optimization score for each action's pair of tokens
+    # arguments:
+    # - actions: list of ScoredAction objects
+    # output: list of ScoredAction objects, ordered by decreasing by optimization of likelihood
     def rank_actions(self, actions):
         ranked = sorted(actions, key=lambda a: a.score)
 
@@ -174,9 +217,17 @@ class HRBPE(BPE):
 
         return ranked
 
+    # purpose: halt the given training process when no Actions are predicted to improve the negative log likelihood
+    # arguments: NA
+    # output: boolean, indicating whether or not a stopping criterion has been reached
     def do_break_early(self): 
         return self._early_stop and min(self._NLLs) < self._NLLs[0] and len(self._NLLs) > 1 and self._NLLs[-1] > self._NLLs[-2] 
 
+    # purpose: plot the rank-frequency distribution of the current segmentation of the system's ingested data, as well as a given frequency model and its convergence over optimization epochs
+    # arguments:
+    # - fname: str (optional) file name where the displayed image will be stored. if left empty, image will NOT be saved to disk
+    # prereqs: a trained HR-BPE model with a likelihood optimziation history
+    # output: displayed rank-frequency distribution with inset showing optimization as a function of epoch
     def display_epochs(self, fname = ''):
         if self._start_dist is None:
             print(f'Not currently saving starting distribution information...')

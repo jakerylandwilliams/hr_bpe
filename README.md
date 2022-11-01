@@ -1,1 +1,10 @@
-# hr-bpe
+# Harmonically Regularized Byte-Pair Encoding (HR-BPE)
+HR-BPE is a framework for segmenting arbitrary categorical sequences of data towards harmonic distributional structures. HR-BPE augments BPE procedure by extending from merge to include split actions, and by regularizing the choice of these actions via iterative distributional analysis of vocabulary frequencies. Distributional approaches to regularization are based on the conclusions drawn from these works:
+- https://arxiv.org/pdf/1710.07729.pdf
+- https://jakerylandwilliams.github.io/documents/williams2021a.pdf
+
+and further documentation will accompany software improvements.
+
+The widely-used [WordPiece algorithm](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/37842.pdf) can be seen as a regularized form of byte-pair encoding (BPE), which learns sub-token merge rules according to radius-1 co-occurence frequencies. While the regularization that makes WordPiece function is a language model, HR-BPE's regularization assumes only [the stationary form of a document-mixture's vocabulary](https://jakerylandwilliams.github.io/documents/williams2021a.pdf) for unsupervised learning information, and augments standard BPE by allowing split-actions. These differences, and a hyper-efficient frequency-based implementation, allow for HR-BPE to process arbitrary character systems under a highly expressive framework that is lossless, requires no pre-processing, and is likewise supervise-able&mdash;HR-BPE is capable of channeling external data-information through gold standard tokenizations, while still retaining sub-word expressivity and a hyper-efficient frequency-based loss function.
+
+For more information on HR-BPE, see this repository for how to [access HR-BPE](https://github.com/jakerylandwilliams/IaMaN) and [HR-BPE's demonstration notebook](https://github.com/jakerylandwilliams/IaMaN/blob/main/demo-tok.ipynb) to see its integration with affiliated technologies for use on natural language processing tasks.
