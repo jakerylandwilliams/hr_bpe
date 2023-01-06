@@ -1,6 +1,6 @@
 from .base import Action
 from .base import BPE
-from .base import Tokenizer
+from .base import Tokenizer, listokenize, load_td
 
 from .greedy import GreedyBPE
 from .regularized import HRBPE
@@ -11,5 +11,7 @@ __all__ = [
     'BPE',
     'Action',
     'GreedyBPE',
-    'HRBPE'
+    'HRBPE',
+    'listokenize',
+    'load_td'
 ]

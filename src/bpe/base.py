@@ -9,6 +9,74 @@ from tqdm import tqdm
 from ..harmonic import get_model
 from ..utils import tokenize
 
+def listokenize(text, td = {}):
+    assert td['action_trace'], "Can't tokenize, no trained model!"
+    mock = BPE()
+    mock.init([text], method=td['init_method'], apply=True) # method='char'
+    prev_aix = -1; available_action_indices = []; observed = set(); tokenizing = True
+    while tokenizing:
+        available_action_indices = sorted(list(filter(lambda next_aix: next_aix > prev_aix, available_action_indices)) + 
+                                          [next_aix for next_aix in [aix for tok in mock._unigraph 
+                                                                     for aix in td['tok2splits'][tok] if tok not in observed] + 
+                                           [td['pair2merge'][pair] for pair in mock._digraph
+                                            if pair not in observed and pair in td['pair2merge']]
+                                           if next_aix > prev_aix])
+        observed = observed.union(set(mock._unigraph.keys()).union(set(mock._digraph.keys())))
+        if available_action_indices:
+            aix = available_action_indices[0]
+        else:
+            tokenizing = False
+            break
+        prev_aix = aix
+        action = td['action_trace'][aix]
+        if action['type'] == 'merge':
+            mock.merge(action['pair'])
+        else:
+            mock.split(action['pair'])
+    tks = []
+    for t, idxs in mock._tok_idx.items():
+        for ix in idxs:
+            tks.append((t, ix))
+    tks.sort(key=lambda ti: ti[1])
+    tks, _ = zip(*tks)
+    return tks
+
+def load_td(data = None, path = ''):
+    if data is None and path:
+        data = json.load(open(path))
+    td = {}
+    # from Tokenizer
+    td['tok2ind'] = data['tok2ind']
+    td['ind2tok'] = {v: k for k, v in td['tok2ind'].items()}
+    td['action_trace'] = [{'pair': tuple(a[0]), 'type': 'merge' if a[1] else 'split', 
+                           'count': a[2], 'score': a[3]} for a in data['action_trace']]
+    td['tok2acts'] = defaultdict(list)
+    td['pair2merge'] = dict()
+    td['tok2splits'] = defaultdict(list)
+    for aix, a in enumerate(td['action_trace']):
+        if a['type'] =='split':
+            td['tok2acts']["".join(a['pair'])].append(aix)
+            td['tok2splits']["".join(a['pair'])].append(aix)
+        else:
+            td['pair2merge'][tuple(a['pair'])] = aix
+            td['tok2acts'][a['pair'][0]].append(aix)
+            td['tok2acts'][a['pair'][1]].append(aix)
+    td['maxtoklen'] = max([len(t) for t in td['tok2ind']])
+    # from BPE
+    if 'unigraph' in data:
+        td['unigraph'] = Counter(data['unigraph'])
+        td['digraph'] = Counter({(l, r): v for l, r, v in data['digraph']})
+        td['doc_unigraph'] = defaultdict(Counter)
+        for k, v in data['doc_unigraph'].items():
+            td['doc_unigraph'][k] = Counter(v)
+    td['init_method'] = data['init_method']
+    # from HRBPE
+    if 'param_method' in data:
+        td['param_method'] = data['param_method']
+        td['reg_model'] = data['reg_model']
+        td['early_stop'] = data['early_stop']
+    return td
+
 # purpose: cast a merge or split action object
 # arguments: see __init__()
 # prereqs: none
@@ -235,6 +303,15 @@ class Tokenizer(ABC):
         tks.sort(key=lambda ti: ti[1])
         tks, _ = zip(*tks)
         return tks
+    
+    def return_tokenization(self):
+        tks = []
+        for t, idxs in self._tok_idx.items():
+            for ix in idxs:
+                tks.append((t, ix))
+        tks.sort(key=lambda ti: ti[1])
+        tks, _ = zip(*tks)
+        return tks
 
     # purpose: convert a list of token indices to a str object
     # arguments: indices: list (tokenized document) of ints (indices) to be mapped to strings and joined
@@ -305,20 +382,22 @@ class BPE(Tokenizer):
         data['unigraph'] = dict(self._unigraph)
         data['digraph'] = [[k[0], k[1], v] for k, v in self._digraph.items()]
         data['doc_unigraph'] = {k: dict(v) for k, v in self._doc_unigraph.items()}
+        data['init_method'] = self._init_method
         super(BPE, self).save(path, data=data)
+#         json.dump({'docs': self._training_data, 'covering': self._training_covering}, 
+#                   open(re.sub('.json', '-docs.json', path), 'w+'))
 
     # purpose: load a model
     # arguments:
     # - path: (see Tokenizer)
     def load(self, path):
         data = super(BPE, self).load(path)
-
         self._unigraph = Counter(data['unigraph'])
         self._digraph = Counter({(l, r): v for l, r, v in data['digraph']})
         self._doc_unigraph = defaultdict(Counter)
         for k, v in data['doc_unigraph'].items():
             self._doc_unigraph[k] = Counter(v)
-
+        self._init_method = data['init_method']
         return data
 
     # purpose: intialize a BPE-based model
@@ -332,6 +411,7 @@ class BPE(Tokenizer):
     # prereqs: a corpus of document to either tokenize or initialize for training
     # output: none, data are ingested and structured for learning or application of a model
     def init(self, docs, seed=None, method='char', apply=False, covering = [], action_protect = ''):
+        # self._training_data = docs; self._training_covering = covering
         self._init_method = method
         self._action_protect = action_protect
         ## guarentees a covering

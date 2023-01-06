@@ -1,5 +1,6 @@
-import re
+import re, json
 import numpy as np
+from collections import defaultdict, Counter
 
 # purpose: segment a text (str object) into a sequence of smaller str tokens
 # arguments:
